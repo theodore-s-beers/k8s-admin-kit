@@ -1,0 +1,57 @@
+- name: Install k8s v1.33 components
+  hosts: "{{ target | default(omit) }}"
+  become: true
+  tasks:
+    - name: Ensure apt keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Ensure dependencies are present
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gpg
+        state: present
+        update_cache: true
+
+    - name: Download k8s 1.33 signing key
+      ansible.builtin.get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.key
+        mode: "0644"
+
+    - name: Convert key to GPG format (if newly downloaded)
+      ansible.builtin.shell: |
+        gpg --dearmor < /etc/apt/keyrings/kubernetes-apt-keyring.key > /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
+        rm /etc/apt/keyrings/kubernetes-apt-keyring.key
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Add k8s 1.33 apt repo
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        content: |
+          deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Update apt index
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install k8s packages
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+
+    - name: Hold k8s packages to prevent unintended upgrades
+      ansible.builtin.command: apt-mark hold kubelet kubeadm kubectl
+      changed_when: false
